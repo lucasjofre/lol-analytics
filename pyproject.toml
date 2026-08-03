@@ -1,56 +1,14 @@
 [project]
 name = "lol-analytics"
 version = "0.1.0"
-description = "Riot API ingestion, dbt data models, and an MCP-backed self-service BI layer for League of Legends match data."
+description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = [
-    "httpx>=0.27",
-    "pydantic>=2.7",
-    "pydantic-settings>=2.3",
-    "tenacity>=8.4",
-    "structlog>=24.1",
-    "typer>=0.12",
-]
-
-[project.optional-dependencies]
-databricks = [
-    "databricks-sdk>=0.30",
-    "databricks-sql-connector>=3.3",
-]
-dbt = [
-    "dbt-databricks>=1.8",
-]
-mcp = [
-    "mcp>=1.2",
-]
-
-[dependency-groups]
-dev = [
-    "pytest>=8.2",
-    "pytest-asyncio>=0.23",
-    "respx>=0.21",
-    "ruff>=0.5",
-]
+dependencies = []
 
 [project.scripts]
-lol-analytics = "lol_analytics.cli:app"
-# Entry points referenced by the Databricks ingestion job tasks.
-ingest-ladder = "lol_analytics.ingestion.crawlers.ladder:main"
-ingest-matches = "lol_analytics.ingestion.crawlers.matches:main"
+lol-analytics = "lol_analytics:main"
 
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13.0"]
 build-backend = "uv_build"
-
-[tool.uv.build-backend]
-# Keep the dbt project out of the wheel: it lives under src/ for bundle-sync
-# convenience, but it is not importable Python.
-module-name = "lol_analytics"
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-
-[tool.ruff]
-line-length = 100
-src = ["src"]

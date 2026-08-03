@@ -8,18 +8,3 @@ wheels/
 
 # Virtual environments
 .venv
-
-# Databricks Asset Bundles
-.databricks/
-
-# dbt
-src/dbt/target/
-src/dbt/dbt_packages/
-src/dbt/logs/
-
-# Local ingestion output + secrets
-data/
-.env
-
-# Exploration
-scratch/
