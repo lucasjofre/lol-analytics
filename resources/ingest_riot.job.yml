@@ -1,0 +1,54 @@
+# Riot API ingestion.
+#
+# Declared but PAUSED by default. Ingestion is a long-running, rate-limited crawl
+# that is far cheaper on a local machine than on cloud compute, so day to day this
+# runs via `lol-analytics ingest ...` on your laptop. The job exists so the schedule,
+# parameters and entry point stay reviewable in git, and so it can be flipped on
+# without writing anything new.
+resources:
+  jobs:
+    ingest_riot:
+      name: "[${bundle.target}] Riot API ingestion"
+      description: Crawls the ranked ladder and backfills match detail into the raw landing volume.
+
+      schedule:
+        quartz_cron_expression: "0 0 */6 * * ?"
+        timezone_id: UTC
+        pause_status: ${var.ingestion_paused}
+
+      parameters:
+        - name: region
+          default: ${var.riot_region}
+        - name: landing_path
+          default: /Volumes/${var.catalog}/${resources.schemas.raw.name}/landing
+
+      tasks:
+        - task_key: crawl_ladder
+          python_wheel_task:
+            package_name: lol_analytics
+            entry_point: ingest-ladder
+            parameters:
+              - --region={{job.parameters.region}}
+              - --landing-path={{job.parameters.landing_path}}
+          environment_key: default
+
+        - task_key: backfill_matches
+          depends_on:
+            - task_key: crawl_ladder
+          python_wheel_task:
+            package_name: lol_analytics
+            entry_point: ingest-matches
+            parameters:
+              - --region={{job.parameters.region}}
+              - --landing-path={{job.parameters.landing_path}}
+          environment_key: default
+
+      environments:
+        - environment_key: default
+          spec:
+            client: "3"
+            dependencies:
+              - ../dist/*.whl
+
+      queue:
+        enabled: true

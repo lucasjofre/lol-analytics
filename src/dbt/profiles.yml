@@ -1,0 +1,22 @@
+# Checked in deliberately: no secrets here, everything sensitive comes from env vars.
+# Locally, `source .env` first. On Databricks the dbt task injects its own auth.
+lol_analytics:
+  target: dev
+  outputs:
+    dev:
+      type: databricks
+      catalog: "{{ env_var('DBT_CATALOG', 'lol_analytics') }}"
+      schema: "{{ env_var('DBT_SCHEMA', 'dev_marts') }}"
+      host: "{{ env_var('DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      threads: 4
+
+    prod:
+      type: databricks
+      catalog: "{{ env_var('DBT_CATALOG', 'lol_analytics') }}"
+      schema: "{{ env_var('DBT_SCHEMA', 'prod_marts') }}"
+      host: "{{ env_var('DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      threads: 8

@@ -1,0 +1,29 @@
+# Unity Catalog schemas + the landing volume, declared as bundle resources so the
+# storage layout is version-controlled alongside the code that writes to it.
+resources:
+  schemas:
+    raw:
+      catalog_name: ${var.catalog}
+      name: ${var.schema_prefix}_raw
+      comment: Untransformed Riot API payloads exactly as received. Append-only.
+
+    staging:
+      catalog_name: ${var.catalog}
+      name: ${var.schema_prefix}_staging
+      comment: "dbt staging models: renamed, cast, deduplicated. One model per source entity."
+
+    marts:
+      catalog_name: ${var.catalog}
+      name: ${var.schema_prefix}_marts
+      comment: "dbt marts: dimensional models consumed by BI and the MCP server."
+
+  volumes:
+    landing:
+      catalog_name: ${var.catalog}
+      schema_name: ${resources.schemas.raw.name}
+      name: landing
+      volume_type: MANAGED
+      comment: >-
+        Landing zone for raw Riot payloads. This is the contract boundary between
+        ingestion and transformation: whoever writes here (your laptop or a job)
+        is invisible to everything downstream.

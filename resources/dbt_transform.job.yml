@@ -1,0 +1,38 @@
+# dbt transformation job: raw -> staging -> intermediate -> marts.
+#
+# This is the part that genuinely belongs on Databricks, and it only runs when
+# there is new data in the landing volume, so cost tracks usage rather than uptime.
+resources:
+  jobs:
+    dbt_transform:
+      name: "[${bundle.target}] dbt transform"
+      description: Runs `dbt build` (models + tests together) against the Databricks SQL warehouse.
+
+      schedule:
+        quartz_cron_expression: "0 30 */6 * * ?"
+        timezone_id: UTC
+        pause_status: UNPAUSED
+
+      tasks:
+        - task_key: dbt_build
+          dbt_task:
+            # Relative to the bundle root as synced into the workspace.
+            project_directory: src/dbt
+            profiles_directory: src/dbt
+            catalog: ${var.catalog}
+            schema: ${resources.schemas.marts.name}
+            warehouse_id: ${var.warehouse_id}
+            commands:
+              - dbt deps
+              - dbt build --target ${bundle.target}
+          environment_key: default
+
+      environments:
+        - environment_key: default
+          spec:
+            client: "3"
+            dependencies:
+              - dbt-databricks>=1.8.0
+
+      queue:
+        enabled: true

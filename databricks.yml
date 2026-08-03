@@ -1,0 +1,62 @@
+# Declarative Automation Bundle root.
+# The presence of this file at the repo root is what makes this a bundle;
+# `databricks bundle <cmd>` walks up from the cwd looking for it.
+bundle:
+  name: lol_analytics
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog that holds every schema for this project.
+    default: lol_analytics
+
+  schema_prefix:
+    description: Prefix applied to the raw/staging/marts schemas, so dev and prod can coexist in one catalog.
+    default: dev
+
+  warehouse_id:
+    description: SQL warehouse used by the dbt task. Override per target.
+    default: ""
+
+  ingestion_paused:
+    description: >-
+      Pause status of the Riot ingestion schedule. Ingestion normally runs locally
+      (it is long-running and cheap on a laptop, expensive on cloud compute), so the
+      job is declared here for parity and audit but left PAUSED.
+    default: PAUSED
+
+  riot_region:
+    description: Riot platform routing value used by the ingestion job.
+    default: euw1
+
+artifacts:
+  lol_analytics_wheel:
+    type: whl
+    path: .
+    build: uv build --wheel
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      # host: https://<your-workspace>.cloud.databricks.com
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      schema_prefix: dev
+      ingestion_paused: PAUSED
+
+  prod:
+    mode: production
+    workspace:
+      # host: https://<your-workspace>.cloud.databricks.com
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      schema_prefix: prod
+      # Flip to UNPAUSED only if you ever decide to move ingestion off your machine.
+      ingestion_paused: PAUSED
+    permissions:
+      - level: CAN_VIEW
+        group_name: users
