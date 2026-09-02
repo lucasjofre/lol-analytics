@@ -1,0 +1,23 @@
+# Dev target: personal accounts only, plus a tiny cohort sample so the cohort
+# path gets exercised. A full run costs a few hundred API calls.
+name: dev
+
+personal:
+  - name: me
+    platform: br1
+    game_name: CHANGE_ME
+    tag_line: BR1
+    max_games: 200
+
+cohorts:
+  - name: br_apex_sample
+    platform: br1
+    queue: RANKED_SOLO_5x5
+    tiers: [CHALLENGER]
+    max_games_per_account: 2
+
+queue_id: 420          # ranked solo/duo; null for every queue
+since_days: 365        # timelines are only retained for one year
+time_budget_minutes: 30
+batch_size: 50
+fetch_timelines: true

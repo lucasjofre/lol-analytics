@@ -1,4 +1,4 @@
-# Declarative Automation Bundle root.
+# Databricks Asset Bundle root.
 # The presence of this file at the repo root is what makes this a bundle;
 # `databricks bundle <cmd>` walks up from the cwd looking for it.
 bundle:
@@ -6,6 +6,26 @@ bundle:
 
 include:
   - resources/*.yml
+
+artifacts:
+  lol_analytics:
+    type: whl
+    path: .
+    build: uv build --wheel
+
+variables:
+  catalog:
+    description: Unity Catalog catalog holding bronze/silver/gold schemas
+    default: lol_dev
+  secret_scope:
+    description: Secret scope containing riot_api_key
+    default: lol
+  warehouse_id:
+    description: SQL warehouse used by the dbt task
+    default: ""
+  schedule_pause_status:
+    description: PAUSED or UNPAUSED
+    default: PAUSED
 
 targets:
   dev:
@@ -20,3 +40,6 @@ targets:
     workspace:
       # host: https://<your-workspace>.cloud.databricks.com
       root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: lol
+      schedule_pause_status: UNPAUSED

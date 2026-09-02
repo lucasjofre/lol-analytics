@@ -1,14 +1,36 @@
 [project]
 name = "lol-analytics"
 version = "0.1.0"
-description = "Add your description here"
+description = "League of Legends analytics on Databricks: Riot API crawler, dbt models, apps"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "requests>=2.32",
+    "pyyaml>=6.0",
+    "pydantic>=2.7",
+]
 
 [project.scripts]
-lol-analytics = "lol_analytics:main"
+refresh_cohort = "lol_analytics.entrypoints.refresh_cohort:main"
+crawl = "lol_analytics.entrypoints.crawl:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "responses>=0.25",
+    "ruff>=0.6",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
