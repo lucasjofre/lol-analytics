@@ -11,3 +11,6 @@ wheels/
 .env
 # Claude Code local state
 .claude/
+
+# Build output
+dist/

@@ -7,6 +7,17 @@ bundle:
 include:
   - resources/*.yml
 
+artifacts:
+  wheel:
+    type: whl
+    path: .
+    build: uv build --wheel
+
+variables:
+  schedule_status:
+    description: PAUSED in dev so deploys don't start crawling on their own.
+    default: PAUSED
+
 targets:
   dev:
     mode: development
@@ -18,6 +29,8 @@ targets:
 
   prod:
     mode: production
+    variables:
+      schedule_status: UNPAUSED
     workspace:
       host: https://dbc-9f02ee48-8e67.cloud.databricks.com
       profile: lol

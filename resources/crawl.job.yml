@@ -1,0 +1,28 @@
+resources:
+  jobs:
+    crawl:
+      name: "[${bundle.target}] lol crawl"
+
+      # Riot retains timelines for ~1 year, so a daily run is the archive:
+      # anything not ingested before it ages out is gone for good.
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: America/Sao_Paulo
+        pause_status: ${var.schedule_status}
+
+      tasks:
+        - task_key: crawl
+          python_wheel_task:
+            package_name: lol_analytics
+            entry_point: lol-crawl
+          environment_key: default
+
+      environments:
+        - environment_key: default
+          spec:
+            client: "3"
+            dependencies:
+              - ../dist/*.whl
+
+      queue:
+        enabled: true
