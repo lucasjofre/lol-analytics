@@ -6,6 +6,8 @@ import time
 
 import requests
 
+MAX_SERVER_ERROR_RETRIES = 5  # transient 5xx from Riot shouldn't kill a long crawl
+
 PLATFORM_TO_REGION = {
     "na1": "americas",
     "br1": "americas",
@@ -38,10 +40,15 @@ class RiotClient:
         sleeping - one blocked key doesn't mean they all are. Only sleep once
         every key has been tried and failed, and then only for as long as the
         soonest one might free up. With a pinned key there's only one to try.
+
+        Riot returns transient 5xx often enough that a single one shouldn't
+        kill a several-hundred-call crawl, so those are retried a bounded
+        number of times before giving up.
         """
         host = PLATFORM_TO_REGION[platform]
         url = f"https://{host}.api.riotgames.com{path}"
         attempts = 1 if key is not None else len(self.keys)
+        server_errors = 0
 
         while True:
             shortest_wait = None
@@ -56,6 +63,11 @@ class RiotClient:
 
                 resp = requests.get(url, headers={"X-Riot-Token": use_key}, params=params, timeout=30)
 
+                if resp.status_code >= 500 and server_errors < MAX_SERVER_ERROR_RETRIES:
+                    server_errors += 1
+                    time.sleep(2**server_errors)
+                    continue
+
                 if resp.status_code != 429:
                     resp.raise_for_status()
                     return resp.json()
@@ -63,7 +75,8 @@ class RiotClient:
                 retry_after = float(resp.headers.get("Retry-After", 5))
                 shortest_wait = retry_after if shortest_wait is None else min(shortest_wait, retry_after)
 
-            time.sleep(shortest_wait)  # every candidate key was 429'd this round
+            if shortest_wait is not None:
+                time.sleep(shortest_wait)  # every candidate key was 429'd this round
 
     def get_account(self, platform: str, game_name: str, tag_line: str) -> dict:
         return self.get(
