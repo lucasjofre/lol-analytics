@@ -8,6 +8,7 @@ dependencies = ["requests"]
 
 [project.scripts]
 lol-crawl = "lol_analytics.run:main"
+lol-cohort = "lol_analytics.run_cohort:main"
 
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13.0"]

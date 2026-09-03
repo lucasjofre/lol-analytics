@@ -23,11 +23,27 @@ PLATFORM_TO_REGION = {
 
 
 class RiotClient:
-    def __init__(self, keys: list[str]):
+    def __init__(self, keys: list[str], primary_key: str | None = None):
+        """`keys` round-robin for matchId calls; `primary_key` serves every
+        puuid call.
+
+        Pin the primary by identity, not list position: puuids stored in Delta
+        only decrypt with the key that issued them, so adding a key to `keys`
+        must never change which key owns puuids. Defaults to keys[0], which is
+        fine until stored puuids exist.
+        """
         self.keys = keys
+        self.primary_key = primary_key or keys[0]
         self._next_key = 0
 
-    def get(self, platform: str, path: str, params: dict | None = None, key: str | None = None) -> dict:
+    def get(
+        self,
+        platform: str,
+        path: str,
+        params: dict | None = None,
+        key: str | None = None,
+        platform_host: bool = False,
+    ) -> dict:
         """Make an authenticated GET, retry on 429.
 
         Riot encrypts puuids per API key - a puuid fetched with one key means
@@ -44,8 +60,11 @@ class RiotClient:
         Riot returns transient 5xx often enough that a single one shouldn't
         kill a several-hundred-call crawl, so those are retried a bounded
         number of times before giving up.
+
+        Most endpoints live on a regional host; league/summoner ones live on
+        the platform host, hence `platform_host`.
         """
-        host = PLATFORM_TO_REGION[platform]
+        host = platform if platform_host else PLATFORM_TO_REGION[platform]
         url = f"https://{host}.api.riotgames.com{path}"
         attempts = 1 if key is not None else len(self.keys)
         server_errors = 0
@@ -80,14 +99,40 @@ class RiotClient:
 
     def get_account(self, platform: str, game_name: str, tag_line: str) -> dict:
         return self.get(
-            platform, f"/riot/account/v1/accounts/by-riot-id/{game_name}/{tag_line}", key=self.keys[0]
+            platform,
+            f"/riot/account/v1/accounts/by-riot-id/{game_name}/{tag_line}",
+            key=self.primary_key,
         )
 
-    def get_match_ids(self, platform: str, puuid: str, start: int = 0, count: int = 20, queue: int | None = None) -> list[str]:
+    def get_match_ids(
+        self,
+        platform: str,
+        puuid: str,
+        start: int = 0,
+        count: int = 20,
+        queue: int | None = None,
+        start_time: int | None = None,
+    ) -> list[str]:
         params = {"start": start, "count": count}
         if queue is not None:
             params["queue"] = queue
-        return self.get(platform, f"/lol/match/v5/matches/by-puuid/{puuid}/ids", params, key=self.keys[0])
+        if start_time is not None:
+            params["startTime"] = start_time  # epoch seconds; only matches after this
+        return self.get(
+            platform, f"/lol/match/v5/matches/by-puuid/{puuid}/ids", params, key=self.primary_key
+        )
+
+    def get_league_entries(
+        self, platform: str, tier: str, division: str, page: int = 1, queue: str = "RANKED_SOLO_5x5"
+    ) -> list[dict]:
+        """One page of the ladder (~205 entries), each carrying a puuid."""
+        return self.get(
+            platform,
+            f"/lol/league-exp/v4/entries/{queue}/{tier}/{division}",
+            {"page": page},
+            key=self.primary_key,
+            platform_host=True,
+        )
 
     def get_match(self, platform: str, match_id: str) -> dict:
         return self.get(platform, f"/lol/match/v5/matches/{match_id}")

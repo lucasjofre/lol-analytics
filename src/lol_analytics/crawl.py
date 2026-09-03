@@ -19,21 +19,53 @@ def list_match_ids(
     puuid: str,
     max_games: int | None = None,
     queue: int | None = None,
+    start_time: int | None = None,
 ) -> list[str]:
-    """Every match id Riot still retains for this puuid, newest first.
+    """Match ids for this puuid, newest first.
 
     Ids are ~15 bytes each, so even a full history is trivial to hold.
-    max_games=None (the default) walks everything.
+    max_games=None (the default) walks everything; start_time (epoch seconds)
+    limits it to matches after that moment, which is how the cohort job keeps
+    each account to a single call per day.
     """
     match_ids: list[str] = []
     start = 0
     while max_games is None or len(match_ids) < max_games:
-        batch = client.get_match_ids(platform, puuid, start=start, count=PAGE_SIZE, queue=queue)
+        batch = client.get_match_ids(
+            platform, puuid, start=start, count=PAGE_SIZE, queue=queue, start_time=start_time
+        )
         match_ids.extend(batch)
         if len(batch) < PAGE_SIZE:
             break  # fewer than a full page means there's nothing left
         start += PAGE_SIZE
     return match_ids if max_games is None else match_ids[:max_games]
+
+
+def discover_cohort(
+    client: RiotClient,
+    platform: str,
+    tier: str,
+    divisions: tuple[str, ...] = ("I", "II", "III", "IV"),
+    queue: str = "RANKED_SOLO_5x5",
+    max_accounts: int | None = None,
+) -> list[dict]:
+    """Page the ladder for a tier, returning entries with puuid, rank and LP.
+
+    ~205 accounts per call, so discovery is cheap next to the per-account
+    listing that follows it.
+    """
+    entries: list[dict] = []
+    for division in divisions:
+        page = 1
+        while max_accounts is None or len(entries) < max_accounts:
+            batch = client.get_league_entries(platform, tier, division, page, queue)
+            if not batch:
+                break  # empty page means the division is exhausted
+            entries.extend(batch)
+            page += 1
+        if max_accounts is not None and len(entries) >= max_accounts:
+            break
+    return entries if max_accounts is None else entries[:max_accounts]
 
 
 def crawl_batches(
