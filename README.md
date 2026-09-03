@@ -71,6 +71,28 @@ matchId-based calls are ~99% of volume, so round-robin still does most of the
 work. Any future cohort or fan-out discovery inherits this rule: whichever key
 discovered a puuid is the only key that can use it.
 
+**This leaks into stored match payloads.** Since match fetches round-robin,
+each bronze row was fetched by whichever key was next, so participant
+identifiers are not comparable *between rows*. Diffing one match fetched with
+two keys, exactly these vary:
+
+| Varies by key | Stable |
+|---|---|
+| `participants[].puuid` | `riotIdGameName` / `riotIdTagline` |
+| `participants[].summonerId` | `championName`, `championId`, all stats |
+| `metadata.participants[]` | |
+
+**Use `riotIdGameName` + `riotIdTagline` as player identity** (e.g.
+`EsquiiiLo#BR1`). Never join across rows on `puuid` or `summonerId` - it will
+silently produce wrong results.
+
+The tradeoff: Riot IDs are renameable, so a player who renames appears as two
+identities. puuid would solve that but is key-scoped. No identifier is both
+stable across keys and across renames. Accepted, since renames are rare.
+For fan-out crawling later, resolve a Riot ID back to a puuid with the pinned
+key at crawl time (one extra call) rather than pinning all match fetches,
+which would halve throughput.
+
 ### Rate limits are per key, so parallelism buys nothing
 
 The ceiling is `n_keys x limit` whether one process rotates keys or N
