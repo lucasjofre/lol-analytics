@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC # Exploring the Riot API
 # MAGIC
@@ -19,10 +23,10 @@ import json
 import requests
 
 # Paste your key here for now. Later this moves to a Databricks secret.
-API_KEY = ""
 
-GAME_NAME = "CHANGE_ME"  # the part before the #
-TAG_LINE = "BR1"  # the part after the #
+GAME_NAME = "Humper"  # the part before the #
+
+TAG_LINE = "humpe"  # the part after the #
 
 PLATFORM = "br1"  # summoner / league endpoints
 REGION = "americas"  # account / match endpoints (na1, br1, la1, la2 all use americas)
@@ -57,7 +61,7 @@ account
 
 # COMMAND ----------
 
-match_ids = get(REGION, f"/lol/match/v5/matches/by-puuid/{PUUID}/ids", start=0, count=20, queue=420)
+match_ids = get(REGION, f"/lol/match/v5/matches/by-puuid/{PUUID}/ids", start=0, count=100)
 print(len(match_ids))
 match_ids
 
@@ -70,12 +74,22 @@ match_ids
 
 # COMMAND ----------
 
-MATCH_ID = match_ids[0]
-match = get(REGION, f"/lol/match/v5/matches/{MATCH_ID}")
+matches = []
+for match in match_ids:
+    matches.append(get(REGION, f"/lol/match/v5/matches/{match}"))
 
-print("metadata keys:", list(match["metadata"]))
-print("info keys:", list(match["info"]))
-print("participant keys:", len(match["info"]["participants"][0]), "fields")
+
+# COMMAND ----------
+
+matches.sort(key=lambda m: m["info"]["gameCreation"], reverse=True)
+
+# COMMAND ----------
+
+# convert unix timestamp
+from datetime import datetime
+
+match = matches[0]
+print(datetime.fromtimestamp(match["info"]["gameCreation"] / 1000))
 
 # COMMAND ----------
 
@@ -84,13 +98,7 @@ import pandas as pd
 
 cols = ["riotIdGameName", "teamId", "teamPosition", "championName", "kills", "deaths", "assists",
         "totalMinionsKilled", "goldEarned", "totalDamageDealtToChampions", "visionScore", "win"]
-pd.DataFrame(match["info"]["participants"])[cols]
-
-# COMMAND ----------
-
-# Your own row, every field. Scroll through it: this is what one participant record holds.
-me = next(p for p in match["info"]["participants"] if p["puuid"] == PUUID)
-print(json.dumps(me, indent=2)[:6000])
+pd.DataFrame(matches[0]["info"]["participants"])[cols]
 
 # COMMAND ----------
 
@@ -102,7 +110,7 @@ print(json.dumps(me, indent=2)[:6000])
 
 # COMMAND ----------
 
-timeline = get(REGION, f"/lol/match/v5/matches/{MATCH_ID}/timeline")
+timeline = get(REGION, f"/lol/match/v5/matches/{match_ids[0]}/timeline")
 frames = timeline["info"]["frames"]
 print("frames:", len(frames), "(roughly game length in minutes)")
 print("participantFrame keys:", list(frames[10]["participantFrames"]["1"]))
