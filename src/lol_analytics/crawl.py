@@ -5,19 +5,30 @@ from __future__ import annotations
 from lol_analytics.client import RiotClient
 
 
+PAGE_SIZE = 100  # Riot's max per call
+
+
 def crawl_player(
     client: RiotClient,
     platform: str,
     game_name: str,
     tag_line: str,
-    count: int = 20,
+    max_games: int = 1000,
     queue: int | None = None,
 ) -> list[dict]:
-    """Riot ID -> puuid -> match ids -> match details + timeline for each."""
+    """Riot ID -> puuid -> all match ids (paginated) -> match details + timeline for each."""
     account = client.get_account(platform, game_name, tag_line)
     puuid = account["puuid"]
 
-    match_ids = client.get_match_ids(platform, puuid, count=count, queue=queue)
+    match_ids = []
+    start = 0
+    while len(match_ids) < max_games:
+        batch = client.get_match_ids(platform, puuid, start=start, count=PAGE_SIZE, queue=queue)
+        match_ids.extend(batch)
+        if len(batch) < PAGE_SIZE:
+            break  # fewer than a full page means there's nothing left
+        start += PAGE_SIZE
+    match_ids = match_ids[:max_games]
 
     matches = []
     for match_id in match_ids:
