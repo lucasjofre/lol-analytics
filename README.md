@@ -23,11 +23,11 @@ limits, needs a short project description, light review).
 
 ```python
 from lol_analytics.client import RiotClient
-from lol_analytics.crawl import crawl_batches, list_match_ids, resolve_puuid
+from lol_analytics.crawl import crawl_batches, list_match_ids
 from lol_analytics.ingest import existing_match_ids, write_bronze
 
 client = RiotClient(keys)
-puuid = resolve_puuid(client, "br1", "GameName", "TAG")
+puuid = client.get_account("br1", "GameName", "TAG")["puuid"]
 
 already = existing_match_ids(spark, "br1")
 todo = [m for m in list_match_ids(client, "br1", puuid) if m not in already]
@@ -93,7 +93,7 @@ For fan-out crawling later, resolve a Riot ID back to a puuid with the pinned
 key at crawl time (one extra call) rather than pinning all match fetches,
 which would halve throughput.
 
-### Rate limits are per key, so parallelism buys nothing
+### Rate limits are per key, so extra processes buy nothing
 
 The ceiling is `n_keys x limit` whether one process rotates keys or N
 processes each own one. A personal/dev key allows 20 req/s and 100 req/120s,
@@ -104,23 +104,54 @@ Splitting the same workload across tasks adds partitioning logic, N secrets,
 and N log streams for zero throughput gain. Two workloads that genuinely must
 run concurrently should get *disjoint* key subsets, never a shared pool.
 
-### With few keys you're latency-bound, not limit-bound
+Concurrency *inside* that one script is a different question, and the answer
+is the opposite - see below. Extra processes don't raise the ceiling; one
+thread per key is what reaches it.
 
-Each call gets a budget of `1.2s / n_keys`, and Riot's round-trip is ~640ms.
-Measured with 2 keys:
+### One blocking thread can't reach the ceiling; one worker per key can
 
-| Matches | Calls | Time | Rate | 429s |
+A single thread waits on one reply at a time, so while it blocks on one key
+the other keys' quotas sit idle. Rotating keys doesn't fix that - with 4 keys
+a round-robin returns to each key only every `4 x latency`, longer than the
+1.2s that key would have allowed.
+
+`crawl_batches()` therefore runs one worker per key, each pinned to its own
+key by task index (which also keeps threads off the non-atomic `_next_key`
+counter). Measured over 250 matches per arm - 500 calls each, deliberately
+past the 100/120s per-key allowance so the limiter actually engages:
+
+| | matches/s | calls/s | % of ceiling | Wall |
 |---|---|---|---|---|
-| 199 | 401 | 4.1 min | 1.63/s (ceiling 1.67) | **0** |
+| Sequential | 0.76 | 1.52 | 46% | 5.5 min |
+| One worker per key | 1.80 | 3.60 | 108% | 2.3 min |
 
-429s only start appearing around 3+ keys, where the per-call budget (400ms)
-drops below round-trip time. This is why the client is reactive - no proactive
-pacing - and why that works: it rarely has to intervene.
+**2.37x**, or ~2,700 -> ~6,500 matches/hour on 4 keys. The concurrent arm
+lands at the quota ceiling, which is the whole point: it is now limit-bound
+rather than latency-bound, so the only way further up is more keys.
+
+More workers than keys buys nothing - a key's allowance is fixed no matter how
+many threads ask for it. Extra workers per key would only pay off if
+round-trip time exceeded the 1.2s per-key budget, and it doesn't: ~385ms
+median, ~600ms p95 for match details. Timelines are ~8x the payload and
+correspondingly slower on the wire, which is why the sequential arm above
+sits below the details-only rate.
+
+429s stay rare and the client's reactive backoff absorbs them - 4 in 500 calls
+at one worker per key. Riot serves 8 concurrent requests with no latency
+penalty at all, so concurrency is never the constraint; quota is.
 
 ### Transient 5xx are routine
 
 A single 503 killed a 400-call crawl mid-run. Bounded retry with backoff is
 required for long runs.
+
+Dropped connections are the same hazard one layer down, and `get()` does *not*
+handle them - it retries status codes, not transport errors, so a
+`requests.ConnectionError` still ends a run. Fresh connections per call never
+hit this in 1,600 measured calls; a pooled `Session` hit it 4 times in 500,
+Riot closing keep-alives mid-crawl. That is also why there is no `Session`
+here: reuse measured *slower* (3.38 vs 3.79 calls/s) once reconnect cost is
+counted, despite lower per-call latency.
 
 ### Retention
 

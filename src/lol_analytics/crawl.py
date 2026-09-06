@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Iterator
 
 from lol_analytics.client import RiotClient
 
 PAGE_SIZE = 100  # Riot's max per call
-
-
-def resolve_puuid(client: RiotClient, platform: str, game_name: str, tag_line: str) -> str:
-    return client.get_account(platform, game_name, tag_line)["puuid"]
 
 
 def list_match_ids(
@@ -79,19 +76,25 @@ def crawl_batches(
     Peak memory stays at one batch (~600KB per timeline) instead of the whole
     history, and whatever the caller has already written stays durable if the
     run dies partway.
+
+    One worker per key, each pinned to its own key. A single thread rotating
+    keys can only wait on one reply at a time, so the other keys' quotas sit
+    idle - measured 2.4 calls/s against a 3.3 ceiling with 4 keys. Pinning by
+    index also keeps threads off the non-atomic _next_key counter.
     """
-    batch: list[dict] = []
-    for match_id in match_ids:
-        batch.append({
+    def fetch(item: tuple[int, str]) -> dict:
+        i, match_id = item
+        key = client.keys[i % len(client.keys)]
+        return {
             "match_id": match_id,
-            "match": client.get_match(platform, match_id),
-            "timeline": client.get_timeline(platform, match_id),
-        })
-        if len(batch) == batch_size:
-            yield batch
-            batch = []  # drops the caller's reference; the old batch can be freed
-    if batch:
-        yield batch
+            "match": client.get_match(platform, match_id, key=key),
+            "timeline": client.get_timeline(platform, match_id, key=key),
+        }
+
+    with ThreadPoolExecutor(max_workers=len(client.keys)) as pool:
+        for start in range(0, len(match_ids), batch_size):
+            chunk = list(enumerate(match_ids[start:start + batch_size], start))
+            yield list(pool.map(fetch, chunk))
 
 
 def crawl_player(
@@ -107,6 +110,6 @@ def crawl_player(
     Holds the full history in memory - fine for a single account, but jobs
     should drive crawl_batches directly and write as they go.
     """
-    puuid = resolve_puuid(client, platform, game_name, tag_line)
+    puuid = client.get_account(platform, game_name, tag_line)["puuid"]
     match_ids = list_match_ids(client, platform, puuid, max_games, queue)
     return [m for batch in crawl_batches(client, platform, match_ids) for m in batch]

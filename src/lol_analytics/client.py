@@ -134,8 +134,8 @@ class RiotClient:
             platform_host=True,
         )
 
-    def get_match(self, platform: str, match_id: str) -> dict:
-        return self.get(platform, f"/lol/match/v5/matches/{match_id}")
+    def get_match(self, platform: str, match_id: str, key: str | None = None) -> dict:
+        return self.get(platform, f"/lol/match/v5/matches/{match_id}", key=key)
 
-    def get_timeline(self, platform: str, match_id: str) -> dict:
-        return self.get(platform, f"/lol/match/v5/matches/{match_id}/timeline")
+    def get_timeline(self, platform: str, match_id: str, key: str | None = None) -> dict:
+        return self.get(platform, f"/lol/match/v5/matches/{match_id}/timeline", key=key)

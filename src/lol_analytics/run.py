@@ -11,7 +11,7 @@ import logging
 from pyspark.sql import SparkSession
 
 from lol_analytics.client import RiotClient
-from lol_analytics.crawl import crawl_batches, list_match_ids, resolve_puuid
+from lol_analytics.crawl import crawl_batches, list_match_ids
 from lol_analytics.ingest import existing_match_ids, write_bronze
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -37,7 +37,7 @@ def main() -> None:
     client = RiotClient(get_keys(spark))
 
     for platform, game_name, tag_line in ACCOUNTS:
-        puuid = resolve_puuid(client, platform, game_name, tag_line)
+        puuid = client.get_account(platform, game_name, tag_line)["puuid"]
         already = existing_match_ids(spark, platform)
         todo = [m for m in list_match_ids(client, platform, puuid) if m not in already]
         log.info("%s#%s: %d new matches (%d already stored)", game_name, tag_line, len(todo), len(already))
