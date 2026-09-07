@@ -1,7 +1,7 @@
 resources:
   jobs:
     ladder:
-      name: "[${bundle.target}] lol ladder snapshot"
+      name: "lol ladder snapshot"
 
       # ~1.2M accounts at ~205 per call is ~5.9k calls, well under 30 min.
       # Weekly is enough: this is who sits where, not what they played.
@@ -22,7 +22,7 @@ resources:
           spec:
             client: "3"
             dependencies:
-              - ../dist/*.whl
+              - ../../dist/*.whl
 
       queue:
         enabled: true

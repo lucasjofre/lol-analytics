@@ -44,11 +44,33 @@ notebook, but it holds the whole history in memory, so jobs should use
 
 ```
 src/lol_analytics/
-  client.py   # Riot API: key rotation, retries. One call at a time.
-  crawl.py    # What to fetch, in what order. Streams batches.
-  ingest.py   # Bronze Delta writes.
-dbt/          # Models over the bronze JSON (stock dbt init so far)
-notebooks/    # API exploration
+  client.py     # Riot API: keys, rotation, retries, tier vocabulary.
+  crawl.py      # What to fetch, in what order. Streams batches.
+  ingest.py     # Bronze Delta writes.
+  jobs/         # One module per scheduled job
+    personal.py # lol-personal - full history for the Riot IDs you name
+    cohort.py   # lol-cohort   - daily forward-only crawl of a ranked cohort
+    ladder.py   # lol-ladder   - weekly full-ladder snapshot
+dbt/            # Models over the bronze JSON (stock dbt init so far)
+notebooks/      # API exploration
+```
+
+Jobs import from `client`/`crawl`/`ingest`, never from each other - anything
+two jobs need (the key list, tier order) lives in `client.py`.
+
+One name per job all the way down, so a job is greppable end to end:
+
+| Module | Entry point | Bundle resource |
+|---|---|---|
+| `jobs/personal.py` | `lol-personal` | `resources/personal.job.yml` |
+| `jobs/cohort.py` | `lol-cohort` | `resources/cohort.job.yml` |
+| `jobs/ladder.py` | `lol-ladder` | `resources/ladder.job.yml` |
+
+Anything worth changing per run is a job parameter, overridable from the UI or
+CLI without a redeploy, defaulting to what the script itself defaults to:
+
+```bash
+databricks bundle run personal --params platform=euw1,riot_ids='Name#TAG,Other#TAG'
 ```
 
 ## Riot API constraints

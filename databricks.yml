@@ -5,7 +5,7 @@ bundle:
   name: lol_analytics
 
 include:
-  - resources/*.yml
+  - resources/jobs/*.yml
 
 artifacts:
   wheel:

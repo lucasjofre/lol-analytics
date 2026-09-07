@@ -1,0 +1,41 @@
+resources:
+  jobs:
+    personal:
+      name: "lol personal crawl"
+
+      # Riot retains timelines for ~1 year, so a daily run is the archive:
+      # anything not ingested before it ages out is gone for good.
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: America/Sao_Paulo
+        pause_status: ${var.schedule_status}
+
+      # Overridable per run from the UI/CLI without a redeploy. Defaults match
+      # what the script itself defaults to, so an unparametrized run is
+      # unchanged. All Riot IDs in one run share a platform - crawling accounts
+      # on two servers is two runs.
+      parameters:
+        - name: platform
+          default: "br1"
+        - name: riot_ids
+          default: "Humper#humpe"
+
+      tasks:
+        - task_key: personal
+          python_wheel_task:
+            package_name: lol_analytics
+            entry_point: lol-personal
+            parameters:
+              - "--platform={{job.parameters.platform}}"
+              - "--riot-ids={{job.parameters.riot_ids}}"
+          environment_key: default
+
+      environments:
+        - environment_key: default
+          spec:
+            client: "3"
+            dependencies:
+              - ../../dist/*.whl
+
+      queue:
+        enabled: true

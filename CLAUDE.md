@@ -4,8 +4,9 @@
 
 - Make the SMALLEST change that satisfies the request. Do not refactor,
   rename, reformat, or "improve" code you were not asked to touch.
-- Do NOT create new files unless strictly required. Prefer editing an
-  existing file over adding a new one.
+- New files and folders are fine when they genuinely make things simpler -
+  don't overdo it, and say so before you create them. Default to editing an
+  existing file; reach for a new one when a file is doing two jobs at once.
 - Do NOT add abstractions (interfaces, base classes, factories, wrappers,
   generic helpers) for a single use case. Inline first; abstract only when
   there are 3+ real call sites.
@@ -16,8 +17,8 @@
   requirement.
 - Match the surrounding code's style, naming, and patterns. Do not introduce
   a new pattern.
-- If a change seems to need more than ~20 lines or a new file, STOP and
-  propose the plan first instead of writing it.
+- If a change seems to need more than ~20 lines, STOP and propose the plan
+  first instead of writing it.
 - Comments only where the "why" is non-obvious. No narration of what the
   code plainly does.
 

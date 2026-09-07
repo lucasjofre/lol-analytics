@@ -1,4 +1,8 @@
-"""Riot API client: key rotation, pacing, retries, and the endpoints we use."""
+"""Riot API client: key rotation, pacing, retries, and the endpoints we use.
+
+Also holds what every job needs before it can make a call: the secret-backed
+key list, and Riot's own vocabulary (platform/region mapping, tier order).
+"""
 
 from __future__ import annotations
 
@@ -20,6 +24,21 @@ PLATFORM_TO_REGION = {
     "kr": "asia",
     "jp1": "asia",
 }
+
+DIVISION_TIERS = ("IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND")
+APEX_TIERS = ("MASTER", "GRANDMASTER", "CHALLENGER")  # no divisions - the API ignores it
+TIER_ORDER = DIVISION_TIERS + APEX_TIERS
+
+SECRET_SCOPE = "lol"
+SECRET_KEY = "api_keys"
+
+
+def get_keys(spark) -> list[str]:
+    """The key list every job runs on, from the Databricks secret scope."""
+    from pyspark.dbutils import DBUtils
+
+    raw = DBUtils(spark).secrets.get(scope=SECRET_SCOPE, key=SECRET_KEY)
+    return [k.strip() for k in raw.split(",") if k.strip()]
 
 
 class RiotClient:

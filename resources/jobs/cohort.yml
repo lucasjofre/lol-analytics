@@ -1,7 +1,7 @@
 resources:
   jobs:
     cohort:
-      name: "[${bundle.target}] lol cohort crawl"
+      name: "lol cohort crawl"
 
       # Forward-only: one call per account per day is already the dominant
       # cost, so anything missed today is simply picked up tomorrow.
@@ -40,7 +40,7 @@ resources:
           spec:
             client: "3"
             dependencies:
-              - ../dist/*.whl
+              - ../../dist/*.whl
 
       queue:
         enabled: true

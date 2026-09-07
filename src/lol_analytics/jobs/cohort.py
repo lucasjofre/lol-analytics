@@ -1,11 +1,11 @@
-"""Daily cohort crawl, plus the weekly full-ladder snapshot.
+"""Daily cohort crawl: everything a ranked cohort played since the last run.
 
 History is not feasible for a cohort this size - one call per account per day
 is already the dominant cost - so this only ever looks forward. Backfill stays
-a personal-account thing.
+a personal-account thing, in personal.py.
 
-Both jobs start from the same ladder pages, hence one module: `main` crawls
-what a cohort played, `ladder` just records who is where.
+The cohort comes from the bronze ladder snapshot that ladder.py writes, not
+from a live ladder call.
 """
 
 from __future__ import annotations
@@ -18,39 +18,26 @@ from datetime import datetime, timezone
 
 from pyspark.sql import SparkSession
 
-from lol_analytics.client import RiotClient
-from lol_analytics.crawl import crawl_batches, discover_cohort, list_match_ids
+from lol_analytics.client import TIER_ORDER, RiotClient, get_keys
+from lol_analytics.crawl import crawl_batches, list_match_ids
 from lol_analytics.ingest import (
     existing_match_ids,
     latest_league_entries,
     recently_listed_puuids,
     write_bronze,
-    write_league_entries,
     write_listed_accounts,
 )
-from lol_analytics.run import get_keys
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("cohort")
 
 PLATFORM = "br1"
-TIERS = "DIAMOND"  # a bare tier, or "PLATINUM+" for that tier and everything above
-MAX_ACCOUNTS = 1000
-LOOKBACK_HOURS = 24  # how far back to search for matches played, not ladder staleness
-
-# Stop before the run outgrows its window; whatever is missed is picked up
-# tomorrow, since bronze is the state.
-CALL_BUDGET = 12_000
 
 # Accounts listed (pinned key, slow) before their matches get crawled (4 keys,
 # written to bronze) and the run checkpoints. Listing 50k accounts can take
 # hours on one key; without this, a kill mid-run loses everything listed so
 # far, since nothing reaches bronze until every account has been listed.
 LISTING_BATCH = 100
-
-LADDER_TIERS = ("IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND")
-LADDER_APEX = ("MASTER", "GRANDMASTER", "CHALLENGER")  # no divisions - the API ignores it
-TIER_ORDER = LADDER_TIERS + LADDER_APEX
 
 
 def parse_tiers(spec: str) -> tuple[str, ...]:
@@ -61,41 +48,15 @@ def parse_tiers(spec: str) -> tuple[str, ...]:
     return (spec.upper(),)
 
 
-def ladder() -> None:
-    """Snapshot every ranked solo account on the platform into bronze.
-
-    Measured 1,194,692 accounts on br1 at ~205 per call, so the whole ladder is
-    ~5.9k calls - under 30 min on 4 keys, cheap enough to run weekly. Written
-    one division at a time so peak memory stays at one bucket (~100k rows at
-    worst) and a failure keeps everything already written.
-    """
-    spark = SparkSession.builder.getOrCreate()
-    client = RiotClient(get_keys(spark))
-
-    buckets = [(t, d) for t in LADDER_TIERS for d in ("I", "II", "III", "IV")]
-    buckets += [(t, "I") for t in LADDER_APEX]
-    log.info("ladder snapshot: %s, %d tier/division buckets", PLATFORM, len(buckets))
-
-    total = 0
-    by_tier: Counter = Counter()
-    for n, (tier, division) in enumerate(buckets, 1):
-        entries = discover_cohort(client, PLATFORM, tier, (division,))
-        total += write_league_entries(spark, entries, PLATFORM)
-        by_tier[tier] += len(entries)
-        log.info("  [%2d/%d] %-12s %-4s %7d accounts (%d so far)",
-                 n, len(buckets), tier, division, len(entries), total)
-
-    log.info("ladder snapshot done: %d accounts on %s", total, PLATFORM)
-    log.info("  tier breakdown: %s", dict(by_tier))
-
-
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--tiers", default=TIERS, help="e.g. 'DIAMOND' or 'PLATINUM+'")
-    p.add_argument("--max-accounts", type=int, default=MAX_ACCOUNTS)
-    p.add_argument("--lookback-hours", type=int, default=LOOKBACK_HOURS,
-                    help="how far back to search for matches played")
-    p.add_argument("--call-budget", type=int, default=CALL_BUDGET)
+    p.add_argument("--tiers", default="DIAMOND", help="e.g. 'DIAMOND' or 'PLATINUM+'")
+    p.add_argument("--max-accounts", type=int, default=1000)
+    p.add_argument("--lookback-hours", type=int, default=24,
+                    help="how far back to search for matches played, not ladder staleness")
+    # Stop before the run outgrows its window; whatever is missed is picked up
+    # tomorrow, since bronze is the state.
+    p.add_argument("--call-budget", type=int, default=12_000)
     return p.parse_args()
 
 
