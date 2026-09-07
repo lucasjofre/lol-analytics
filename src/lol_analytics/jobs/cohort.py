@@ -21,9 +21,9 @@ from pyspark.sql import SparkSession
 from lol_analytics.client import TIER_ORDER, RiotClient, get_keys
 from lol_analytics.crawl import crawl_batches, list_match_ids
 from lol_analytics.ingest import (
-    existing_match_ids,
     latest_league_entries,
     recently_listed_puuids,
+    unseen_match_ids,
     write_bronze,
     write_listed_accounts,
 )
@@ -38,6 +38,8 @@ PLATFORM = "br1"
 # hours on one key; without this, a kill mid-run loses everything listed so
 # far, since nothing reaches bronze until every account has been listed.
 LISTING_BATCH = 100
+
+CALLS_PER_MATCH = 2  # match details + timeline
 
 
 def parse_tiers(spec: str) -> tuple[str, ...]:
@@ -82,9 +84,6 @@ def main() -> None:
     since = int(time.time()) - args.lookback_hours * 3600
     since_str = datetime.fromtimestamp(since, tz=timezone.utc).isoformat()
     log.info("searching for matches played since %s (lookback=%dh)", since_str, args.lookback_hours)
-    already = existing_match_ids(spark, PLATFORM)
-    log.info("%d match ids already in lol.bronze.matches for %s", len(already), PLATFORM)
-
     # An account listed this recently was already searched for everything
     # this run would ask for, so a restart skips it instead of re-spending
     # the pinned key's slow, single-key listing calls for no new discovery.
@@ -99,36 +98,36 @@ def main() -> None:
 
     # Accounts are listed and their matches crawled batch by batch, not all
     # listing then all crawling, so a kill mid-run only loses the current
-    # batch - everything before it is already in bronze. `found` and `crawled`
-    # persist across batches (not just within one) so a match seen under two
-    # accounts still gets fetched once, exactly like the old single-pass dedupe.
-    found: set[str] = set()
-    crawled: set[str] = set()
+    # batch - everything before it is already in bronze. Bronze is also the
+    # only record of what's been fetched: unseen_match_ids re-reads it each
+    # batch, so a match seen under two accounts is still fetched once without
+    # this loop tracking that itself.
     written = 0
     budget_used = 0
 
     for start in range(0, len(entries), LISTING_BATCH):
         chunk = entries[start:start + LISTING_BATCH]
-        for entry in chunk:
-            found.update(list_match_ids(client, PLATFORM, entry["puuid"], start_time=since))
+        found = {
+            m
+            for e in chunk
+            for m in list_match_ids(client, PLATFORM, e["puuid"], start_time=since)
+        }
         write_listed_accounts(spark, [e["puuid"] for e in chunk], PLATFORM)
         budget_used += len(chunk)
 
-        new_matches = [m for m in found if m not in already and m not in crawled]
-        budget_left = args.call_budget - budget_used
-        if len(new_matches) * 2 > budget_left:
-            new_matches = new_matches[: max(0, budget_left // 2)]
+        affordable = max(0, (args.call_budget - budget_used) // CALLS_PER_MATCH)
+        todo = unseen_match_ids(spark, sorted(found), PLATFORM)[:affordable]
 
-        for batch in crawl_batches(client, PLATFORM, new_matches):
+        for batch in crawl_batches(client, PLATFORM, todo):
             write_bronze(spark, batch, PLATFORM)
             written += len(batch)
-            crawled.update(m["match_id"] for m in batch)
-            budget_used += len(batch) * 2
+            budget_used += len(batch) * CALLS_PER_MATCH
 
         listed = min(start + LISTING_BATCH, len(entries))
-        log.info("checkpoint: %d/%d accounts listed, %d distinct matches found, "
-                  "%d written, %d/%d call budget used",
-                  listed, len(entries), len(found), written, budget_used, args.call_budget)
+        log.info("checkpoint: %d/%d accounts listed, %d found this batch, %d new, "
+                  "%d written so far, %d/%d call budget used",
+                  listed, len(entries), len(found), len(todo), written,
+                  budget_used, args.call_budget)
 
         if budget_used >= args.call_budget:
             log.info("call budget exhausted with %d/%d accounts listed, stopping early - "

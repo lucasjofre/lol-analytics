@@ -86,14 +86,25 @@ def write_league_entries(spark, entries: list[dict], platform: str, schema: str 
     return len(rows)
 
 
-def existing_match_ids(spark, platform: str, schema: str = "lol.bronze") -> set[str]:
-    """Match ids already in bronze, so a re-run doesn't refetch them."""
-    if not spark.catalog.tableExists(f"{schema}.{MATCHES_TABLE}"):
-        return set()
-    rows = spark.sql(
+def unseen_match_ids(
+    spark, match_ids: list[str], platform: str, schema: str = "lol.bronze"
+) -> list[str]:
+    """Of these ids, the ones not already in bronze, in the order given.
+
+    An anti-join against just the ids being asked about, rather than pulling
+    every stored id to the driver: bronze grows without bound, but a run only
+    ever needs to know about the handful of matches it just listed. Reading
+    the table each time also means this sees what the same run already wrote,
+    so callers don't have to track that themselves.
+    """
+    if not match_ids or not spark.catalog.tableExists(f"{schema}.{MATCHES_TABLE}"):
+        return match_ids
+    candidates = spark.createDataFrame([(m,) for m in match_ids], "match_id string")
+    stored = spark.sql(
         f"select match_id from {schema}.{MATCHES_TABLE} where platform = '{platform}'"
-    ).collect()
-    return {r.match_id for r in rows}
+    )
+    known = {r.match_id for r in candidates.join(stored, "match_id", "left_semi").collect()}
+    return [m for m in match_ids if m not in known]
 
 
 def write_listed_accounts(spark, puuids: list[str], platform: str, schema: str = "lol.bronze") -> int:
