@@ -1,7 +1,7 @@
 resources:
   jobs:
     personal:
-      name: "lol personal crawl"
+      name: "lol personal ingest"
 
       # Riot retains timelines for ~1 year, so a daily run is the archive:
       # anything not ingested before it ages out is gone for good.

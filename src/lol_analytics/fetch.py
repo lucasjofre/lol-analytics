@@ -1,4 +1,4 @@
-"""Crawl orchestration: what to fetch and in what order, for one account."""
+"""What to fetch from Riot, and in what order."""
 
 from __future__ import annotations
 
@@ -38,34 +38,7 @@ def list_match_ids(
     return match_ids if max_games is None else match_ids[:max_games]
 
 
-def discover_cohort(
-    client: RiotClient,
-    platform: str,
-    tier: str,
-    divisions: tuple[str, ...] = ("I", "II", "III", "IV"),
-    queue: str = "RANKED_SOLO_5x5",
-    max_accounts: int | None = None,
-) -> list[dict]:
-    """Page the ladder for a tier, returning entries with puuid, rank and LP.
-
-    ~205 accounts per call, so discovery is cheap next to the per-account
-    listing that follows it.
-    """
-    entries: list[dict] = []
-    for division in divisions:
-        page = 1
-        while max_accounts is None or len(entries) < max_accounts:
-            batch = client.get_league_entries(platform, tier, division, page, queue)
-            if not batch:
-                break  # empty page means the division is exhausted
-            entries.extend(batch)
-            page += 1
-        if max_accounts is not None and len(entries) >= max_accounts:
-            break
-    return entries if max_accounts is None else entries[:max_accounts]
-
-
-def crawl_batches(
+def fetch_matches(
     client: RiotClient,
     platform: str,
     match_ids: list[str],
@@ -95,21 +68,3 @@ def crawl_batches(
         for start in range(0, len(match_ids), batch_size):
             chunk = list(enumerate(match_ids[start:start + batch_size], start))
             yield list(pool.map(fetch, chunk))
-
-
-def crawl_player(
-    client: RiotClient,
-    platform: str,
-    game_name: str,
-    tag_line: str,
-    max_games: int | None = None,
-    queue: int | None = None,
-) -> list[dict]:
-    """Everything for one Riot ID, in one list. Convenient for exploration.
-
-    Holds the full history in memory - fine for a single account, but jobs
-    should drive crawl_batches directly and write as they go.
-    """
-    puuid = client.get_account(platform, game_name, tag_line)["puuid"]
-    match_ids = list_match_ids(client, platform, puuid, max_games, queue)
-    return [m for batch in crawl_batches(client, platform, match_ids) for m in batch]

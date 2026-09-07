@@ -7,9 +7,9 @@ requires-python = ">=3.11"
 dependencies = ["requests"]
 
 [project.scripts]
-lol-personal = "lol_analytics.jobs.personal:main"
-lol-cohort = "lol_analytics.jobs.cohort:main"
-lol-ladder = "lol_analytics.jobs.ladder:main"
+lol-personal = "lol_analytics.jobs.personal.run:main"
+lol-cohort = "lol_analytics.jobs.cohort.run:main"
+lol-ladder = "lol_analytics.jobs.ladder.run:main"
 
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13.0"]

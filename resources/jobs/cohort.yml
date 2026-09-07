@@ -1,7 +1,7 @@
 resources:
   jobs:
     cohort:
-      name: "lol cohort crawl"
+      name: "lol cohort ingest"
 
       # Forward-only: one call per account per day is already the dominant
       # cost, so anything missed today is simply picked up tomorrow.

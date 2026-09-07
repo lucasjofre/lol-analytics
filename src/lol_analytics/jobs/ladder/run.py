@@ -1,8 +1,21 @@
 """Weekly full-ladder snapshot: who sits at what rank, into bronze.
 
-This is what the cohort crawl picks its accounts from - it reads these bronze
+This is what the cohort ingest picks its accounts from - it reads these bronze
 rows rather than paging the ladder itself, so the two jobs share the ladder
 cost instead of each paying it.
+
+What this run does
+------------------
+1. Build the 31 buckets: 7 tiers x 4 divisions, plus 3 apex tiers, which
+   have no divisions.
+2. For each bucket:
+     a. list_league_entries()   page until a page comes back empty
+                                (~205 accounts per call)
+     b. write_league_entries()  append that bucket      <- checkpoint
+
+One bucket at a time, so peak memory is one bucket (~100k rows at worst) and a
+failure keeps every bucket already written. Append-only: the history of who sat
+at what rank on a given day is data the API cannot give you retroactively.
 """
 
 from __future__ import annotations
@@ -13,8 +26,7 @@ from collections import Counter
 from pyspark.sql import SparkSession
 
 from lol_analytics.client import APEX_TIERS, DIVISION_TIERS, RiotClient, get_keys
-from lol_analytics.crawl import discover_cohort
-from lol_analytics.ingest import write_league_entries
+from lol_analytics.jobs.ladder.steps import list_league_entries, write_league_entries
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("ladder")
@@ -40,7 +52,7 @@ def main() -> None:
     total = 0
     by_tier: Counter = Counter()
     for n, (tier, division) in enumerate(buckets, 1):
-        entries = discover_cohort(client, PLATFORM, tier, (division,))
+        entries = list_league_entries(client, PLATFORM, tier, (division,))
         total += write_league_entries(spark, entries, PLATFORM)
         by_tier[tier] += len(entries)
         log.info("  [%2d/%d] %-12s %-4s %7d accounts (%d so far)",

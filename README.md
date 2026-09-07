@@ -23,7 +23,7 @@ limits, needs a short project description, light review).
 
 ```python
 from lol_analytics.client import RiotClient
-from lol_analytics.crawl import crawl_batches, list_match_ids
+from lol_analytics.fetch import fetch_matches, list_match_ids
 from lol_analytics.ingest import existing_match_ids, write_bronze
 
 client = RiotClient(keys)
@@ -32,31 +32,40 @@ puuid = client.get_account("br1", "GameName", "TAG")["puuid"]
 already = existing_match_ids(spark, "br1")
 todo = [m for m in list_match_ids(client, "br1", puuid) if m not in already]
 
-for batch in crawl_batches(client, "br1", todo):
+for batch in fetch_matches(client, "br1", todo):
     write_bronze(spark, batch, "br1")
 ```
-
-`crawl_player()` returns everything in one list instead - convenient in a
-notebook, but it holds the whole history in memory, so jobs should use
-`crawl_batches` as above.
 
 ## Layout
 
 ```
-src/lol_analytics/
-  client.py     # Riot API: keys, rotation, retries, tier vocabulary.
-  crawl.py      # What to fetch, in what order. Streams batches.
-  ingest.py     # Bronze Delta writes.
-  jobs/         # One module per scheduled job
-    personal.py # lol-personal - full history for the Riot IDs you name
-    cohort.py   # lol-cohort   - daily forward-only crawl of a ranked cohort
-    ladder.py   # lol-ladder   - weekly full-ladder snapshot
-dbt/            # Models over the bronze JSON (stock dbt init so far)
-notebooks/      # API exploration
+src/lol_analytics/          # shared: used by two or more jobs
+  client.py                 # Riot API transport, keys, tier vocabulary
+  fetch.py                  # list_match_ids, fetch_matches
+  ingest.py                 # write_bronze, unseen_match_ids, table names
+  jobs/                     # one folder per scheduled job
+    personal/run.py         # lol-personal - full history for the Riot IDs you name
+    cohort/
+      run.py                # lol-cohort   - daily forward-only ingest of a ranked cohort
+      steps.py              # listed_accounts + reading the ladder snapshot
+    ladder/
+      run.py                # lol-ladder   - weekly full-ladder snapshot
+      steps.py              # paging the ladder + writing the snapshot
+dbt/                        # Models over the bronze JSON (stock dbt init so far)
+notebooks/                  # API exploration
 ```
 
-Jobs import from `client`/`crawl`/`ingest`, never from each other - anything
-two jobs need (the key list, tier order) lives in `client.py`.
+A function lives in the package root once two jobs need it, and in a job's
+own folder while only that job does. Job folders never import each other, and
+the shared modules never import from `jobs/`.
+
+Each job folder is `run.py` (what the entry point calls) plus `steps.py`
+(everything only that job needs, Riot calls and bronze alike). `personal/` has
+no `steps.py` - it uses only shared code.
+
+The one seam worth knowing: `league_entries` is written by ladder and read by
+cohort, so the table *name* is shared (`ingest.py`) while the write schema sits
+in `ladder/steps.py` and the read in `cohort/steps.py`.
 
 One name per job all the way down, so a job is greppable end to end:
 
@@ -137,7 +146,7 @@ the other keys' quotas sit idle. Rotating keys doesn't fix that - with 4 keys
 a round-robin returns to each key only every `4 x latency`, longer than the
 1.2s that key would have allowed.
 
-`crawl_batches()` therefore runs one worker per key, each pinned to its own
+`fetch_matches()` therefore runs one worker per key, each pinned to its own
 key by task index (which also keeps threads off the non-atomic `_next_key`
 counter). Measured over 250 matches per arm - 500 calls each, deliberately
 past the 100/120s per-key allowance so the limiter actually engages:
@@ -203,7 +212,7 @@ driver. Measured over 400 matches:
 | Accumulate all | +258 MB |
 | Stream batches | +1 MB |
 
-`crawl_batches()` yields a batch at a time, so peak memory tracks batch size
+`fetch_matches()` yields a batch at a time, so peak memory tracks batch size
 rather than history length - and partial progress survives a crash.
 
 ## Environment
