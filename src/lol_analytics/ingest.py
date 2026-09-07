@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 MATCHES_TABLE = "matches"
 TIMELINES_TABLE = "timelines"
 LEAGUE_TABLE = "league_entries"
+LISTED_ACCOUNTS_TABLE = "listed_accounts"
 
 SCHEMA = "match_id string, platform string, fetched_at timestamp, payload string"
 
@@ -19,6 +20,8 @@ LEAGUE_SCHEMA = (
     "puuid string, platform string, queue_type string, tier string, division string, "
     "league_points int, wins int, losses int, inactive boolean, fetched_at timestamp"
 )
+
+LISTED_ACCOUNTS_SCHEMA = "puuid string, platform string, listed_at timestamp"
 
 
 def _rows(matches: list[dict], platform: str, payload_key: str) -> list[tuple]:
@@ -91,3 +94,65 @@ def existing_match_ids(spark, platform: str, schema: str = "lol.bronze") -> set[
         f"select match_id from {schema}.{MATCHES_TABLE} where platform = '{platform}'"
     ).collect()
     return {r.match_id for r in rows}
+
+
+def write_listed_accounts(spark, puuids: list[str], platform: str, schema: str = "lol.bronze") -> int:
+    """Record that these accounts' matches were just listed.
+
+    Written whether or not any matches were found - most accounts have none
+    in a given window, and a restart needs to skip those too, not just the
+    ones that turned up something. Shared by any job that lists by puuid, not
+    specific to the cohort crawl.
+    """
+    listed_at = datetime.now(timezone.utc)
+    rows = [(p, platform, listed_at) for p in puuids]
+    spark.createDataFrame(rows, LISTED_ACCOUNTS_SCHEMA).write.mode("append").saveAsTable(
+        f"{schema}.{LISTED_ACCOUNTS_TABLE}"
+    )
+    return len(rows)
+
+
+def recently_listed_puuids(
+    spark, platform: str, within_hours: int, schema: str = "lol.bronze"
+) -> set[str]:
+    """Puuids already listed within within_hours, so a restart can skip them.
+
+    Pass the same value as the match lookback: an account listed that
+    recently was already searched for everything the current run would ask
+    for, so re-listing it can only repeat work, not find anything new.
+    """
+    if not spark.catalog.tableExists(f"{schema}.{LISTED_ACCOUNTS_TABLE}"):
+        return set()
+    rows = spark.sql(f"""
+        select distinct puuid from {schema}.{LISTED_ACCOUNTS_TABLE}
+        where platform = '{platform}' and listed_at > now() - interval {within_hours} hours
+    """).collect()
+    return {r.puuid for r in rows}
+
+
+def latest_league_entries(
+    spark, platform: str, tiers: tuple[str, ...], max_accounts: int, schema: str = "lol.bronze"
+) -> list[dict]:
+    """Each account's own most recent row, filtered to the requested tiers.
+
+    league_entries is append-only - one row per account per ladder() run - so
+    this is a per-puuid latest, not a global one. That also makes it correct
+    across a partial ladder() failure (some tiers newer than others) and for
+    an account that has since moved out of the requested tiers: its true
+    latest row wins and it drops out, instead of matching on a stale one.
+    """
+    if not spark.catalog.tableExists(f"{schema}.{LEAGUE_TABLE}"):
+        return []
+    tier_list = ", ".join(f"'{t}'" for t in tiers)
+    rows = spark.sql(f"""
+        select puuid, tier, league_points from (
+            select puuid, tier, league_points,
+                   row_number() over (partition by puuid order by fetched_at desc) as rn
+            from {schema}.{LEAGUE_TABLE}
+            where platform = '{platform}'
+        )
+        where rn = 1 and tier in ({tier_list})
+        order by league_points desc
+        limit {max_accounts}
+    """).collect()
+    return [r.asDict() for r in rows]

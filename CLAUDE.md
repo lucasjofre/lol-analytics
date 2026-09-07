@@ -23,13 +23,18 @@
 
 ## Gotchas that will bite you
 
-These two cause real bugs if forgotten. Full measured detail, plus storage,
+These cause real bugs if forgotten. Full measured detail, plus storage,
 memory, and throughput numbers, is in README.md - read it before changing
 crawl/ingest behavior or the key-handling design.
 
 - **puuids are encrypted per API key.** The same account returns a different
   puuid per key, and it only decrypts with the key that issued it. puuid-based
   calls pin one key; matchId-based calls can use any. Don't "simplify" that.
-- **Rate limits are per key, so parallelism buys nothing.** The ceiling is
+- **Rate limits are per key, so extra processes buy nothing.** The ceiling is
   `n_keys x limit` regardless of process count. One script with a key list -
-  not parallel tasks. Concurrent workloads need disjoint key subsets.
+  not parallel tasks. Concurrent workloads need disjoint key subsets. Threads
+  *inside* that one script are the exception and are required: one worker per
+  key, because a single blocking thread reaches only ~46% of the ceiling.
+- **These are personal keys, not development keys.** They don't expire every
+  24h, so a run can span the whole day and no daily regeneration step exists.
+  Don't add one, and don't assume a crawl has to finish inside a 24h key life.

@@ -10,11 +10,29 @@ resources:
         timezone_id: America/Sao_Paulo
         pause_status: ${var.schedule_status}
 
+      # Overridable per run from the UI/CLI without a redeploy. Defaults match
+      # what the script itself defaults to, so an unparametrized run is
+      # unchanged. tiers reads from ladder()'s bronze snapshot, not a live call.
+      parameters:
+        - name: tiers
+          default: "DIAMOND"
+        - name: max_accounts
+          default: "1000"
+        - name: lookback_hours
+          default: "24"
+        - name: call_budget
+          default: "12000"
+
       tasks:
         - task_key: cohort
           python_wheel_task:
             package_name: lol_analytics
             entry_point: lol-cohort
+            parameters:
+              - "--tiers={{job.parameters.tiers}}"
+              - "--max-accounts={{job.parameters.max_accounts}}"
+              - "--lookback-hours={{job.parameters.lookback_hours}}"
+              - "--call-budget={{job.parameters.call_budget}}"
           environment_key: default
 
       environments:
