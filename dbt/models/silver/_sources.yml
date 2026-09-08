@@ -1,0 +1,11 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: Raw Riot API JSON landed by the crawler, one payload string per row.
+    database: lol          # Unity Catalog catalog; `database` is dbt's name for it
+    schema: bronze
+    tables:
+      - name: matches
+      - name: timelines
+      - name: league_entries

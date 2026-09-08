@@ -1,0 +1,11 @@
+name: lol_analytics
+version: "0.1.0"
+profile: lol_analytics
+
+model-paths: ["models"]
+
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  lol_analytics:
+    +materialized: table

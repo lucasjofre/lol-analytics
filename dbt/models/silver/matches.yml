@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: matches
+    description: One row per match with its top-level facts, parsed from bronze JSON.
+    columns:
+      - name: match_id
+        description: Riot match id, e.g. BR1_1234567890.
+        data_tests:
+          - not_null
+          - unique
+      - name: duration_seconds
+        description: Game length in seconds.
+        data_tests:
+          - not_null

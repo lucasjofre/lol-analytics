@@ -136,37 +136,50 @@ def main() -> None:
     # this loop tracking that itself.
     written = 0
     budget_used = 0
+    list_secs = 0.0   # accumulated wall time in the pinned-key listing phase
+    fetch_secs = 0.0  # accumulated wall time in the 4-key match-fetch phase
 
     for start in range(0, len(entries), LISTING_BATCH):
         chunk = entries[start:start + LISTING_BATCH]
+        t0 = time.monotonic()
         found = {
             m
             for e in chunk
             for m in list_match_ids(client, PLATFORM, e["puuid"], start_time=since)
         }
+        list_secs += time.monotonic() - t0
         write_listed_accounts(spark, [e["puuid"] for e in chunk], PLATFORM)
         budget_used += len(chunk)
 
         affordable = max(0, (args.call_budget - budget_used) // CALLS_PER_MATCH)
         todo = unseen_match_ids(spark, sorted(found), PLATFORM)[:affordable]
 
+        t0 = time.monotonic()
         for batch in fetch_matches(client, PLATFORM, todo):
             write_bronze(spark, batch, PLATFORM)
             written += len(batch)
             budget_used += len(batch) * CALLS_PER_MATCH
+        fetch_secs += time.monotonic() - t0
 
         listed = min(start + LISTING_BATCH, len(entries))
         log.info("checkpoint: %d/%d accounts listed, %d found this batch, %d new, "
-                  "%d written so far, %d/%d call budget used",
+                  "%d written so far, %d/%d call budget used | "
+                  "%.0fs listing (%.1f accts/s), %.0fs fetching (%.1f matches/s)",
                   listed, len(entries), len(found), len(todo), written,
-                  budget_used, args.call_budget)
+                  budget_used, args.call_budget,
+                  list_secs, listed / list_secs if list_secs else 0,
+                  fetch_secs, written / fetch_secs if fetch_secs else 0)
 
         if budget_used >= args.call_budget:
             log.info("call budget exhausted with %d/%d accounts listed, stopping early - "
                       "the rest are picked up next run", listed, len(entries))
             break
 
-    log.info("done: %d accounts, %d matches written", len(entries), written)
+    log.info("done: %d/%d accounts listed, %d matches written | "
+              "%.0fs listing (%.1f accts/s), %.0fs fetching (%.1f matches/s)",
+              listed, len(entries), written,
+              list_secs, listed / list_secs if list_secs else 0,
+              fetch_secs, written / fetch_secs if fetch_secs else 0)
 
 
 if __name__ == "__main__":
